@@ -1,0 +1,13 @@
+{
+  "name": "dsh-orb",
+  "version": "0.1.0",
+  "description": "Windows desktop status orb — shows DSH running/decision/result state outside the browser window.",
+  "main": "./lib/index.js",
+  "license": "MIT",
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

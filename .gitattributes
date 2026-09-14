@@ -1,0 +1,9 @@
+# 统一按 LF 存也按 LF 取，避免 Windows / Linux 之间反复出现行尾符噪音
+* text=auto eol=lf
+
+# 二进制
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary
+*.dll binary

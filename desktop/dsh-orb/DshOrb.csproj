@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinExe = Windows 子系统，不会弹命令行窗口。
+         我在 Rust 版上就是漏了这件事（Rust 默认是 console 子系统）。 -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>DshOrb</AssemblyName>
+    <RootNamespace>DshOrb</RootNamespace>
+    <!-- 没有 App.xaml，所以入口是我们自己写的 Program.Main -->
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,1112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>状态悬浮球 · 形态预览</title>
+<style>
+  :root {
+    --panel-bg: rgba(18,19,22,.88);
+    --panel-line: rgba(255,255,255,.10);
+    --text: #E8EAED;
+    --text-dim: #9AA0A6;
+    --accent: #3B82F6;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 13px/1.5 "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    color: var(--text);
+    overflow: hidden;
+    background: #101114;
+    transition: background .3s;
+  }
+  body.bg-light { background: #F2F3F5; color: #202124; }
+  body.bg-wall {
+    background:
+      radial-gradient(1200px 700px at 15% 10%, #2C3E63 0%, transparent 60%),
+      radial-gradient(900px 600px at 85% 85%, #5A3A52 0%, transparent 55%),
+      linear-gradient(160deg, #16181F 0%, #232735 55%, #101218 100%);
+  }
+
+  /* ---------- 舞台 ---------- */
+  #hint {
+    position: fixed; left: 50%; top: 46%; transform: translate(-50%,-50%);
+    text-align: center; pointer-events: none; user-select: none;
+    color: rgba(255,255,255,.16); font-size: 34px; font-weight: 600; letter-spacing: .12em;
+  }
+  body.bg-light #hint { color: rgba(0,0,0,.10); }
+
+  /* ---------- 悬浮球 ---------- */
+  #orbWrap {
+    position: fixed; left: 0; top: 0;
+    width: 200px; height: 200px;
+    cursor: grab;
+    touch-action: none;
+    will-change: transform;
+  }
+  #orbWrap.dragging { cursor: grabbing; }
+  #orb { display: block; width: 200px; height: 200px; }
+
+  /* 悬停展开的信息卡 */
+  #card {
+    position: fixed; left: 0; top: 0;
+    min-width: 168px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-line);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    box-shadow: 0 12px 32px rgba(0,0,0,.45);
+    opacity: 0; transform: translateY(4px) scale(.97);
+    transition: opacity .16s, transform .16s;
+    pointer-events: none;
+    z-index: 5;
+  }
+  #card.on { opacity: 1; transform: translateY(0) scale(1); }
+  #card h4 { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .06em; color: var(--text-dim); text-transform: uppercase; }
+  .row { display: flex; align-items: center; gap: 8px; height: 22px; font-size: 12.5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .row .lbl { flex: 1; color: var(--text-dim); }
+  .row .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .row.zero { opacity: .32; }
+  #detail {
+    margin-top: 9px; padding-top: 9px;
+    border-top: 1px solid var(--panel-line);
+    font-size: 11px; line-height: 1.6; color: var(--text-dim);
+  }
+  #detail .code { color: #FF8A80; font-family: ui-monospace, Consolas, monospace; }
+  #detail .note { color: #8AB4F8; }
+
+  /* ---------- 控制面板 ---------- */
+  #panel {
+    position: fixed; left: 16px; bottom: 16px; z-index: 10;
+    width: 320px; padding: 14px;
+    border-radius: 14px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-line);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    box-shadow: 0 18px 48px rgba(0,0,0,.5);
+  }
+  #panel .title { font-size: 12px; font-weight: 700; letter-spacing: .04em; margin-bottom: 2px; }
+  #panel .sub { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
+  .group { margin-bottom: 11px; }
+  .group:last-child { margin-bottom: 0; }
+  .group > label { display: block; font-size: 10.5px; color: var(--text-dim); margin-bottom: 6px; letter-spacing: .05em; }
+  .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  button {
+    font: inherit; font-size: 12px;
+    padding: 6px 11px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.06);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s, border-color .12s, transform .06s;
+  }
+  button:hover { background: rgba(255,255,255,.12); }
+  button:active { transform: scale(.96); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.k-run.on       { background: #3B82F6; border-color: #3B82F6; }
+  button.k-done.on      { background: #34C759; border-color: #34C759; color: #06210D; }
+  button.k-fail.on      { background: #FF453A; border-color: #FF453A; color: #2A0705; }
+  button.k-ask.on       { background: #F5C242; border-color: #F5C242; color: #2A1F02; }
+  button.k-alert        { border-color: rgba(255,69,58,.45); color: #FF8A80; }
+  button.k-alert:hover  { background: rgba(255,69,58,.16); }
+  .legend { display: flex; gap: 12px; font-size: 10.5px; color: var(--text-dim); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--panel-line); }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  #log { margin-top: 9px; font-size: 11px; color: var(--text-dim); height: 16px; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body class="bg-wall">
+
+<div id="hint">桌面区域</div>
+
+<div id="orbWrap">
+  <canvas id="orb" width="400" height="400"></canvas>
+</div>
+
+<div id="card">
+  <h4>DSH 状态</h4>
+  <div class="row" id="r-run"><span class="dot" style="background:#3B82F6"></span><span class="lbl">运行中</span><span class="val">0</span></div>
+  <div class="row" id="r-ask"><span class="dot" style="background:#F5C242"></span><span class="lbl">待决策</span><span class="val">0</span></div>
+  <div class="row" id="r-ok"><span class="dot" style="background:#34C759"></span><span class="lbl">未读成功</span><span class="val">0</span></div>
+  <div class="row" id="r-bad"><span class="dot" style="background:#FF453A"></span><span class="lbl">失败</span><span class="val">0</span></div>
+  <div id="detail">暂无异常</div>
+</div>
+
+<div id="panel">
+  <div class="title">状态悬浮球 · 形态预览</div>
+  <div class="sub">拖动球可以移动位置 · 鼠标停留展开信息卡 · 默认按剧本演完整生命周期</div>
+
+  <div class="group">
+    <label>外壳形态</label>
+    <div class="btns" id="shapes">
+      <button data-shape="ball" class="on">圆球</button>
+      <button data-shape="capsule">竖条胶囊（原项目）</button>
+      <button data-shape="tile">圆角方块</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <label>状态呈现</label>
+    <div class="btns" id="presents">
+      <button data-p="ring" class="on">同心环</button>
+      <button data-p="dots">四个圆点</button>
+      <button data-p="tint">球体变色</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <label>触发事件</label>
+    <div class="btns">
+      <button class="k-run" id="b-add">＋ 运行</button>
+      <button class="k-done" id="b-done">完成</button>
+      <button class="k-fail" id="b-fail">失败</button>
+      <button class="k-ask" id="b-ask">待决策</button>
+      <button id="b-answer">回答</button>
+      <button id="b-clear" title="等同于「你回到 DSH 看了这个会话」">我看了（清未读）</button>
+      <button id="b-alert" class="k-alert" title="模型中途主动举手：turn 还在跑，但它判断方向可能错了">模拟：AI 中途举手</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <label>演示 / 背景</label>
+    <div class="btns">
+      <button id="b-demo" class="on">自动演示：开</button>
+      <button id="b-mode">剧本</button>
+      <button id="b-autoclear" class="on" title="关掉后剧本不再模拟「你看了」——未读会一直累积">剧本清除：开</button>
+      <button id="b-reset">重置</button>
+      <button data-bg="bg-wall" class="bgbtn on">壁纸</button>
+      <button data-bg="bg-dark" class="bgbtn">深色</button>
+      <button data-bg="bg-light" class="bgbtn">浅色</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:#3B82F6"></i>运行</span>
+    <span><i style="background:#F5C242"></i>待决策</span>
+    <span><i style="background:#34C759"></i>成功</span>
+    <span><i style="background:#FF453A"></i>失败</span>
+  </div>
+  <div id="log">就绪</div>
+</div>
+
+<script>
+'use strict';
+
+/* =========================================================================
+   视觉参数 —— 对齐 dsh-notch 的动作语言
+   纯黑玻璃外壳 / 细线 / 圆角数字 / 一条短笔刷头进尾随、途中连续变色
+   0.95 秒 / 成功与待决策向上、失败向下 / 圆点直径 19pt 基准
+   ========================================================================= */
+const COL = {
+  running:  [ 59, 130, 246],
+  decision: [245, 194,  66],
+  success:  [ 52, 199,  89],
+  failure:  [255,  69,  58],
+  alert:    [255,  69,  58],   // 与失败同色，但用「脉动 + 扩散环」区分「正在进行」和「已经结束」
+};
+const LAMP_R    = 8.5;    // 灯半径（直径 17，接近原项目 19pt）
+const SPACING   = 27;     // 灯间距
+const PAD       = 18;     // 球内边距
+const ARC_R     = 13.5;   // 运行灯的旋转弧半径
+const FLIGHT_MS = 950;    // 笔刷时序
+const STROKE_LEN= 22;     // 笔刷可见长度
+const SPIN      = 2.1;    // 运行弧转速 rad/s
+
+/* ===================== 状态 ===================== */
+const S = { running: 1, decision: 0, success: 0, failure: 0 };
+// 源灯「挂住」标记：最后一个任务出发时，源槽要等笔刷离开后再收
+const hold = { running: false, decision: false, runningNum: 1 };
+// 已读清除：未读结果淡出后归零（对应「你回 DSH 看了一眼」）
+let clearing = null;
+let shape = 'ball';
+let autoDemo = true;
+let randomMode = false;
+let autoClear = true;   // 剧本是否模拟「你回 DSH 看了一眼」
+
+/* 状态呈现方式：
+     ring —— 外圈转（运行中），内圈分成四段弧，有内容的那段就亮（默认）
+     tint —— 一段弧都不放，改用球本身的颜色表示最要紧的状态（最小，44px）
+     dots —— 四个方位各一个圆点（旧方案，留着对比用） */
+let present = 'ring';
+const PRESENT_PRIORITY = ['alert', 'decision', 'failure', 'success'];
+
+/* 失败原因 —— 严格按 DSH 的真实取值：
+   只有这三种 reason 会让 lastTurn.failed = true（见 dsh-notch 的 session-state.ts）
+     error      : LLM 请求失败，code 来自 dsh-llm-deepseek 的 httpErrorCode 映射表
+     blocked    : preStep 判定 reject，被规则否决
+     max-tokens : provider 返回 finish_reason:"length"，撞到输出上限
+   aborted（你自己按停止）与 interrupted（崩溃后补记的收尾）都不算失败。 */
+const FAIL_CYCLE = [
+  { kind: 'error',      code: 'RATE_LIMIT' },
+  { kind: 'error',      code: 'SERVER',     note: 'DeepSeek 服务端 5xx' },
+  { kind: 'max-tokens', code: null },
+  { kind: 'error',      code: 'TIMEOUT',    note: '读取看门狗超时' },
+  { kind: 'blocked',    code: null },
+  { kind: 'error',      code: 'CONTEXT_WINDOW_EXCEEDED' },
+  { kind: 'error',      code: 'AUTH',       note: '密钥无效或无权' },
+  { kind: 'error',      code: 'QUOTA_EXCEEDED' },
+];
+let failIdx = 0;
+let lastFail = null;
+
+/* AI 中途举手：turn 还在跑，但模型自己判断走错方向了，主动闪红灯求你看一眼。
+   这个不是从事件流推出来的 —— 必须由模型显式调用一个工具，属于「模型主动」的信号。
+   视觉上和「已结束的失败」严格区分：失败=静态实心圆，举手=脉动环 + 向外扩散的 ping。 */
+const ALERT_CYCLE = [
+  '同一处编译错误连改 3 次都没过，方向可能不对',
+  '找不到目标文件，正在盲猜路径',
+  '依赖版本冲突，两种改法都会破坏现有代码',
+  '测试一直是红的，怀疑我改错了模块',
+];
+let alertIdx = 0;
+let alert = null;   // { reason, at }
+
+/* ===================== 画布 ===================== */
+const CV = document.getElementById('orb');
+const ctx = CV.getContext('2d');
+const WRAP = document.getElementById('orbWrap');
+const DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+const CSSW = 200, CSSH = 200;
+CV.width = CSSW * DPR; CV.height = CSSH * DPR;
+CV.style.width = CSSW + 'px'; CV.style.height = CSSH + 'px';
+ctx.scale(DPR, DPR);
+
+/* ===================== 布局 ===================== */
+// 灯列表：待决策 / 成功 在上，运行居中，失败在下（空槽不占位）
+function lampList() {
+  const list = [];
+  if (S.decision > 0 || hold.decision) list.push('decision');
+  if (S.success  > 0) list.push('success');
+  if (S.running  > 0 || hold.running) list.push('running');
+  if (S.failure  > 0) list.push('failure');
+  if (alert) list.push('alert');          // 中途举手：永远在最下面、最显眼
+  return list;
+}
+
+/* 只剩「四点」模式还用角度定位（对比用），同心环模式走 arcFor() */
+const SLOT_ANGLE = { alert: -Math.PI / 2, decision: 0, failure: Math.PI / 2, success: Math.PI };
+
+/** 球直径。同心环只要三层环 + 中间数字，能做到最小；四点模式要给圆点留空隙。 */
+function ballD() {
+  if (shape === 'tile') return 68;
+  if (present === 'dots') return 52;    // 四个圆点要留空隙
+  if (present === 'tint') return 40;    // 只有一圈 + 中间数字，最小
+  return 44;                            // 同心环：外圈 + 结果环 + 中间数字
+}
+
+/* 半径布局 —— 照着手表：由外向内。现在只剩两圈：
+     外圈 ringR  运行中（旋转蓝弧）
+     内圈 rRes   结果（成功/失败）
+   「要你动手」不再占一圈，改用整个球的颜色说（见 actionKind）。 */
+function geom() {
+  if (shape === 'capsule') return { radial: false, badgeR: LAMP_R, badgeD: 0, ringR: ARC_R };
+  if (shape === 'tile')    return { radial: true, ringR: 31.5, rRes: 26,   sw: 2.6, badgeR: 7, badgeD: 24 };
+  const R = ballD() / 2;
+  return { radial: true, ringR: R - 2.5, rRes: R - 7, sw: 2.2, badgeR: 6, badgeD: R - 11 };
+}
+
+/** 要你动手的状态 —— 用球体变色表示。优先级：待决策 > 中途举手 */
+function actionKind() {
+  if (S.decision > 0) return 'decision';
+  if (alert !== null) return 'alert';
+  return null;
+}
+
+/** 弧长：1 个占半圈，2 个占四分之三，3 个及以上画满 —— 一眼看出「一个还是好几个」 */
+function ringFrac(n) { return Math.min(1, 0.25 + 0.25 * n); }
+
+/** 结果环的弧长：成功和失败在同一圈上反向生长，各占一半为上限，刚好铺满且永不重叠 */
+function resFrac(n) { return Math.min(0.5, 0.05 + 0.15 * n); }
+
+function drawArc(r, a0, a1, col, alpha, lw) {
+  ctx.beginPath();
+  ctx.arc(0, 0, r, a0, a1, a1 < a0);
+  ctx.strokeStyle = rgba(col, alpha);
+  ctx.lineWidth = lw;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+}
+
+const TOP = -Math.PI / 2;   // 12 点
+/* 12 点留一个缺口 —— 手表上那个开口是给图标用的；对我们来说它还有个实际作用：
+   成功和失败都从 12 点出发，圆头线帽会撞在一起。各退开 6°，谁都不碰谁。 */
+const GAP = 0.105;          // ≈ 6°
+
+/* 同心环 —— 手表的语言。现在只管「结果」这一件事：
+     外圈：运行中（蓝色旋转弧，见 drawLamps）
+     内圈：结果。成功从 12 点右侧顺时针长，失败从 12 点左侧逆时针长 —— 像天平两头
+     「要你动手」不走环，走球体变色（见 actionKind / drawShell）
+   没有内容的圈不画，所以没事的时候球是安静的。 */
+function drawRings(now) {
+  const g = geom();
+  if (!g.radial || present === 'tint') return;
+
+  const dim = k => (ringPending(k) ? 0.22 : 1);
+  if (S.success > 0) drawArc(g.rRes, TOP + GAP, TOP + GAP + resFrac(S.success) * Math.PI * 2, COL.success, dim('success'), g.sw);
+  if (S.failure > 0) drawArc(g.rRes, TOP - GAP, TOP - GAP - resFrac(S.failure) * Math.PI * 2, COL.failure, dim('failure'), g.sw);
+
+  // 要你动手的那个状态：一圈从边缘向内收的 ping —— 球本身在搏动，不是某一圈在闪。
+  // 待决策和举手都有，颜色区分。
+  const actK = actionKind();
+  if (actK !== null) {
+    const t = (now % 1500) / 1500;
+    const pr = g.ringR - t * 5;
+    if (pr > g.rRes + g.sw / 2 + 1.2) {
+      drawArc(pr, TOP + GAP, TOP + GAP + Math.PI * 1.15, COL[actK], 0.55 * (1 - t) * (1 - t), 1.6);
+    }
+  }
+}
+
+function stackLayout(n) {
+  if (n <= 0) return { ys: [], stackH: 0 };
+  const total = (n - 1) * SPACING;
+  const ys = [];
+  for (let i = 0; i < n; i++) ys.push(-total / 2 + i * SPACING);
+  return { ys, stackH: total + LAMP_R * 2 };
+}
+
+/** 某个灯在画布上的位置（画布原点 = 球心） */
+function slotPos(kind, index, count) {
+  const g = geom();
+  if (!g.radial) {
+    const { ys } = stackLayout(count);
+    return { x: 0, y: ys[index] };
+  }
+  if (kind === 'running') return { x: 0, y: 0 };      // 运行数居中
+
+  if (present === 'dots') {
+    const a = SLOT_ANGLE[kind];
+    return { x: Math.cos(a) * g.badgeD, y: Math.sin(a) * g.badgeD };
+  }
+  // 同心环：给到那条弧的中点，笔刷朝它飞
+  const a = arcFor(kind);
+  if (!a) return { x: 0, y: 0 };
+  const mid = (a.a0 + a.a1) / 2;
+  return { x: Math.cos(mid) * a.r, y: Math.sin(mid) * a.r };
+}
+
+/** 某个状态对应的那条弧（同心环模式才有）。必须在状态改完之后调用。 */
+function arcFor(kind) {
+  const g = geom();
+  if (!g.radial || present !== 'ring') return null;
+  const T = -Math.PI / 2, TAU = Math.PI * 2, A = T + GAP, B = T - GAP;
+  if (kind === 'success'  && S.success  > 0) return { cx: 0, cy: 0, r: g.rRes, a0: A, a1: A + resFrac(S.success) * TAU };
+  if (kind === 'failure'  && S.failure  > 0) return { cx: 0, cy: 0, r: g.rRes, a0: B, a1: B - resFrac(S.failure) * TAU };
+  // 待决策不再有自己的圈：笔刷飞到球的最外沿，在壳上刷一小段，同时整个球染上黄色
+  if (kind === 'decision') return { cx: 0, cy: 0, r: ballD() / 2 - 1.2, a0: A, a1: A + Math.PI * 0.5 };
+  if (kind === 'answer')                     return { cx: 0, cy: 0, r: g.ringR, a0: spin, a1: spin + Math.PI * 0.7 };
+  return null;
+}
+
+/** 这条弧是不是正被笔刷描着（描的时候先画暗的，描完才亮） */
+function ringPending(kind) {
+  return flights.some(f => !f.filled && f.kind === kind);
+}
+
+function shellTarget(n) {
+  if (shape === 'capsule') {
+    const { stackH } = stackLayout(n);
+    return { w: 38, h: Math.max(48, stackH + 26) };
+  }
+  const d = ballD();
+  return { w: n === 0 ? 36 : d, h: n === 0 ? 36 : d };   // 固定大小，只有「空闲」才缩成小球
+}
+
+/** 实际要画出来的「灯」（只作用于圆球和方块）。
+    同心环模式下，除了居中的运行数，其余全部由 drawRings() 画成弧，不进这个列表。 */
+function renderList() {
+  const full = lampList();
+  if (shape === 'capsule' || present === 'dots') return full;
+  return full.filter(k => k === 'running');
+}
+
+/** 最要紧的状态（决定球体变色 / 单点模式显示哪一个） */
+function urgentKind() {
+  return PRESENT_PRIORITY.find(k => (k === 'alert' ? alert !== null : S[k] > 0)) || null;
+}
+function urgentColor() { const k = urgentKind(); return k ? COL[k] : null; }
+
+/* 外壳尺寸弹簧（对应原项目的窗口几何过渡） */
+const shell = { w: 48, h: 48 };
+function stepShell(dt, target) {
+  const k = 1 - Math.pow(0.0016, dt);   // ≈ 400ms 收敛
+  shell.w += (target.w - shell.w) * k;
+  shell.h += (target.h - shell.h) * k;
+}
+
+/* ===================== 笔刷飞行 ===================== */
+let spin = -Math.PI / 2;
+const flights = [];
+
+function mix(a, b, t) {
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+}
+const rgb = c => 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')';
+const rgba = (c, a) => 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + a.toFixed(3) + ')';
+
+/* 采样三次贝塞尔 */
+function sampleBezier(p0, c0, c1, p1, n) {
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    out.push({
+      x: u*u*u*p0.x + 3*u*u*t*c0.x + 3*u*t*t*c1.x + t*t*t*p1.x,
+      y: u*u*u*p0.y + 3*u*u*t*c0.y + 3*u*t*t*c1.y + t*t*t*p1.y,
+    });
+  }
+  return out;
+}
+
+/**
+ * 构造一条笔刷路径：从运行弧切线离开 → 贝塞尔飞向目标 → 沿目标圆周描一圈。
+ * 返回按弧长参数化的取样序列与「飞行段」总长。
+ */
+function buildPath(srcPt, srcAngle, dst, dir, arc) {
+  // arc = {cx,cy,r,a0,a1} 时沿这条弧描；否则绕目标小圆描一整圈（竖条模式用）
+  const R  = arc ? arc.r  : geom().badgeR;
+  const cx = arc ? arc.cx : dst.x;
+  const cy = arc ? arc.cy : dst.y;
+  const entry = arc ? arc.a0 : Math.atan2(srcPt.y - cy, srcPt.x - cx);
+
+  const tangent = { x: -Math.sin(srcAngle), y: Math.cos(srcAngle) };
+  // 让切线朝着目标方向
+  const toDst = { x: dst.x - srcPt.x, y: dst.y - srcPt.y };
+  if (tangent.x * toDst.x + tangent.y * toDst.y < 0) { tangent.x *= -1; tangent.y *= -1; }
+
+  const p1 = { x: cx + Math.cos(entry) * R, y: cy + Math.sin(entry) * R };
+  const c0 = { x: srcPt.x + tangent.x * 34, y: srcPt.y + tangent.y * 34 };
+  const outN = { x: Math.cos(entry), y: Math.sin(entry) };
+  const c1 = { x: p1.x + outN.x * 28, y: p1.y + outN.y * 28 };
+
+  const pts = sampleBezier(srcPt, c0, c1, p1, 40);
+  const travelLen = polyLen(pts);
+
+  // 沿目标弧描（同心环模式），或绕小圆描一整圈
+  const sweep = arc ? (arc.a1 - arc.a0) : dir * Math.PI * 2;
+  const steps = arc ? 48 : 96;
+  for (let i = 1; i <= steps; i++) {
+    const a = entry + sweep * (i / steps);
+    pts.push({ x: cx + Math.cos(a) * R, y: cy + Math.sin(a) * R });
+  }
+  return { pts, travelLen, total: polyLen(pts) };
+}
+
+function polyLen(pts) {
+  let L = 0;
+  for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+  return L;
+}
+
+/* 按弧长取点 */
+function pointAt(pts, s) {
+  if (s <= 0) return pts[0];
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+    if (acc + d >= s) {
+      const t = d === 0 ? 0 : (s - acc) / d;
+      return { x: pts[i-1].x + (pts[i].x - pts[i-1].x) * t, y: pts[i-1].y + (pts[i].y - pts[i-1].y) * t };
+    }
+    acc += d;
+  }
+  return pts[pts.length - 1];
+}
+
+/* ===================== 触发事件 ===================== */
+const logEl = document.getElementById('log');
+function log(msg) { logEl.textContent = msg; }
+
+/** kind: running | success | failure | decision | answer（黄→蓝回程） */
+function fire(kind) {
+  if (kind === 'answer' && S.decision <= 0) { log('没有待决策的任务'); return; }
+  if (kind === 'running' && S.running >= 6) { log('运行数已达上限'); return; }
+
+  const prevRunning = S.running;
+
+  // 先改状态
+  if (kind === 'success')       { if (S.running > 0) S.running--; S.success++; }
+  else if (kind === 'failure')  { if (S.running > 0) S.running--; S.failure++; }
+  else if (kind === 'decision') { if (S.running > 0) S.running--; S.decision++; }
+  else if (kind === 'answer')   { S.decision--; S.running++; }
+  else if (kind === 'running')  { S.running++; }
+
+  // 失败时记下真实原因（真实数据里就是 lastTurn.kind + error.code）
+  if (kind === 'failure') {
+    const f = FAIL_CYCLE[failIdx++ % FAIL_CYCLE.length];
+    lastFail = { kind: f.kind, code: f.code, note: f.note, at: Date.now() };
+  }
+
+  // 源灯归零 → 挂住它，等笔刷离开再收（原项目：「源数字与黑底在线条离开时淡出」）
+  let fadeLamp = null;  if (kind === 'answer') {
+    if (S.decision <= 0) { hold.decision = true; fadeLamp = 'decision'; }
+  } else if (S.running <= 0) {
+    hold.running = true; hold.runningNum = prevRunning; fadeLamp = 'running';
+  }
+
+  const after = lampList();                       // 已包含被挂住的源灯
+  const at = k => { const i = after.indexOf(k); return i < 0 ? null : slotPos(k, i, after.length); };
+
+  const srcKind = kind === 'answer' ? 'decision' : 'running';
+  const dstKind = kind === 'answer' ? 'running'  : kind;
+  const srcPos = at(srcKind), dst = at(dstKind);
+  if (!dst) return;
+
+  flights.push({
+    kind, dst, srcPos, fadeLamp,
+    color:     kind === 'answer' ? COL.running : COL[kind],
+    fromColor: kind === 'answer' ? COL.decision : COL.running,
+    dir:       kind === 'failure' ? -1 : 1,
+    arc:       arcFor(kind),
+    t0: performance.now(), filled: false, path: null,
+  });
+
+  const label = { success: '成功', failure: '失败', decision: '待决策', answer: '决策回复', running: '新增任务' }[kind];
+  log(kind === 'answer'
+      ? label + '：黄圈抽出笔画 → 接回蓝环'
+      : label + '：蓝色笔刷' + (kind === 'failure' ? '向下' : '向上'));
+}
+
+/**
+ * 已读清除 —— 对齐 dsh-notch 的语义：只由「你看了」触发，没有定时器。
+ * 真实触发条件是「在这个会话里发了消息 / 这个会话开始了新一轮 / 你翻到了它的历史」。
+ * 预览里没有会话，所以用一个显式动作代替，并按会话粒度简化为整类清除。
+ */
+function clearUnread(source) {
+  const n = S.success + S.failure;
+  const hadAlert = alert !== null;
+  alert = null;                                    // 「我看了」同时收走中途举手的红灯
+  if (n === 0 && !hadAlert) { log('没有未读结果'); return; }
+  if (n > 0) {
+    const kinds = [];
+    if (S.success > 0) kinds.push('success');
+    if (S.failure > 0) kinds.push('failure');
+    clearing = { t0: performance.now(), kinds };
+  }
+  const head = source === 'sim' ? '模拟「你回 DSH 看了一眼」→ ' : '已读清除 → ';
+  const parts = [];
+  if (n > 0) parts.push('清掉 ' + n + ' 条未读');
+  if (hadAlert) parts.push('收走中途举手的红灯');
+  log(head + parts.join('，'));
+}
+
+/**
+ * 模型主动举手 —— turn 还在跑，模型自己判断走错了，主动闪红灯叫你。
+ * 不阻塞、不加任何计数、不碰成功/失败，只是把「需要人」这件事变成一个可见信号。
+ */
+function fireAlert() {
+  alert = { reason: ALERT_CYCLE[alertIdx++ % ALERT_CYCLE.length], at: Date.now() };
+  log('AI 中途举手：' + alert.reason);
+}
+
+/* ===================== 绘制 ===================== */
+let last = performance.now();
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+
+  // 已读清除的淡出播完 → 真正归零
+  if (clearing && now - clearing.t0 >= 300) { S.success = 0; S.failure = 0; clearing = null; }
+
+  const list = lampList();
+  const target = shellTarget(list.length);
+  stepShell(dt, target);
+
+  if (S.running > 0 || flights.length > 0) spin += SPIN * dt;
+
+  ctx.clearRect(0, 0, CSSW, CSSH);
+  ctx.save();
+  ctx.translate(CSSW / 2, CSSH / 2);
+
+  drawShell(target, now);
+
+  // 内容裁进外壳 —— 这样扩散的 ping 会在玻璃边缘收住，而不是画到球外面去
+  ctx.save();
+  {
+    const cw = shell.w, ch = shell.h;
+    const cr = shape === 'ball' ? cw / 2 : (shape === 'tile' ? 22 : cw / 2);
+    ctx.beginPath();
+    roundRect(-cw / 2 + 1.5, -ch / 2 + 1.5, cw - 3, ch - 3, Math.max(2, cr - 1.5));
+    ctx.clip();
+  }
+  drawLamps(renderList(), now);
+  drawRings(now);
+  updateFlights(now, dt);
+  ctx.restore();
+
+  if (list.length === 0) drawIdle(now);   // 完全空闲：一颗安静呼吸的小球
+
+  ctx.restore();
+  updateCard();
+  requestAnimationFrame(frame);
+}
+
+/* 外壳：纯黑玻璃 + 细边；中途举手时整个球泛红呼吸，让球本身就在喊你 */
+function drawShell(target, now) {
+  const w = shell.w, h = shell.h;
+  const r = shape === 'ball' ? w / 2 : (shape === 'tile' ? 22 : w / 2);
+  const breathe = Math.sin(now / 260) * 0.5 + 0.5;
+  // 球体变色专管「要你动手」：待决策 = 黄（稳定），中途举手 = 红（脉动）
+  const actK = actionKind();
+  const tintCol = actK ? COL[actK] : (present === 'tint' ? urgentColor() : null);
+  const tinted = tintCol !== null;
+  // 待决策和举手都要闪 —— 两个都是「要你动手」，球不能安安静静地等着
+  const pulse = actK === 'alert'    ? (0.45 + 0.55 * breathe)
+              : actK === 'decision' ? (0.55 + 0.45 * breathe)
+              : 0.82;
+
+  // 外层柔光（刻意压得很小 —— 大面积模糊阴影会糊成一圈灰雾）
+  ctx.save();
+  ctx.shadowColor = tinted ? rgba(tintCol, pulse * 0.5) : 'rgba(0,0,0,.34)';
+  ctx.shadowBlur = tinted ? 11 + 9 * breathe : 9;
+  ctx.shadowOffsetY = 3;
+  ctx.beginPath();
+  roundRect(-w/2, -h/2, w, h, r);
+  ctx.fillStyle = 'rgba(8,9,11,.94)';
+  ctx.fill();
+  ctx.restore();
+
+  // 玻璃渐变
+  const g = ctx.createLinearGradient(0, -h/2, 0, h/2);
+  g.addColorStop(0, 'rgba(48,52,60,.55)');
+  g.addColorStop(.45, 'rgba(18,20,24,.35)');
+  g.addColorStop(1, 'rgba(6,7,9,.55)');
+  ctx.beginPath();
+  roundRect(-w/2, -h/2, w, h, r);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // 细边（变色模式 / 举手时上色）
+  ctx.beginPath();
+  roundRect(-w/2 + .5, -h/2 + .5, w - 1, h - 1, r);
+  ctx.strokeStyle = tinted ? rgba(tintCol, pulse) : 'rgba(255,255,255,.13)';
+  ctx.lineWidth = tinted ? 1.7 : 1.2;
+  ctx.stroke();
+
+  // 顶部高光
+  ctx.beginPath();
+  ctx.ellipse(0, -h/2 + 6, w * .28, 3.2, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,.05)';
+  ctx.fill();
+}
+
+function roundRect(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/* 灯：运行=旋转蓝弧+数字；结果=实心圆+数字（填充前为空心轮廓） */
+function drawLamps(list, now) {
+  const g = geom();
+  // 有飞行中的结果笔刷时，目标灯先画空心
+  const pending = new Map();
+  for (const f of flights) if (!f.filled && f.kind !== 'answer') pending.set(f.kind, f);
+
+  for (let i = 0; i < list.length; i++) {
+    const kind = list[i];
+    const pos = slotPos(kind, i, list.length);
+
+    // 被挂住的源灯：随笔画离开而淡出（原项目：最后一个任务的蓝数字与黑底一起淡出）
+    let alpha = 1;
+    const realLamp = kind === 'running' ? S.running > 0 : kind === 'decision' ? S.decision > 0 : true;
+    if (!realLamp) {
+      const f = flights.find(x => x.fadeLamp === kind);
+      if (!f) continue;
+      alpha = 1 - Math.min(1, (now - f.t0) / (FLIGHT_MS * .45));
+      if (alpha <= 0.02) continue;
+    }
+
+    // 已读清除：正在收走的灯淡出
+    if (clearing && clearing.kinds.indexOf(kind) >= 0) {
+      alpha *= 1 - Math.min(1, (now - clearing.t0) / 300);
+      if (alpha <= 0.02) continue;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.translate(pos.x, pos.y);
+
+    if (kind === 'running') {
+      const label = String(realLamp ? S.running : hold.runningNum);
+      if (g.radial) {
+        // 圆球 / 方块：外圈转蓝弧，中心是大号运行数
+        ctx.beginPath();
+        ctx.arc(0, 0, g.ringR, spin, spin + Math.PI * 1.15);
+        ctx.strokeStyle = rgb(COL.running);
+        ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, g.ringR, spin + Math.PI, spin + Math.PI * 1.5);
+        ctx.strokeStyle = 'rgba(59,130,246,.20)';
+        ctx.lineWidth = 2.6; ctx.stroke();
+        numeral(label, '#F2F3F5', true, 11);
+      } else {
+        // 竖条：小底盘 + 环绕蓝弧
+        ctx.beginPath(); ctx.arc(0, 0, LAMP_R, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,.92)'; ctx.fill();
+        ctx.beginPath();
+        ctx.arc(0, 0, ARC_R, spin, spin + Math.PI * 1.28);
+        ctx.strokeStyle = rgb(COL.running);
+        ctx.lineWidth = 2.3; ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, ARC_R, spin + Math.PI, spin + Math.PI * 1.55);
+        ctx.strokeStyle = 'rgba(59,130,246,.22)';
+        ctx.lineWidth = 2.3; ctx.stroke();
+        numeral(label, '#F2F3F5');
+      }
+    } else if (kind === 'alert') {
+      drawAlertLamp(now);
+    } else {
+      const col = COL[kind];
+      const isPending = pending.has(kind);
+      if (isPending) {
+        const f = pending.get(kind);
+        const p = Math.min(1, (now - f.t0) / FLIGHT_MS);
+        ctx.beginPath(); ctx.arc(0, 0, g.badgeR, 0, Math.PI * 2);
+        ctx.strokeStyle = rgb(mix([255,255,255], col, .35));
+        ctx.lineWidth = 1.4;
+        ctx.globalAlpha = alpha * (.35 + .45 * p);
+        ctx.stroke();
+        ctx.globalAlpha = alpha;
+      } else {
+        const f = flights.find(x => x.filled && x.dst && x.kind === kind);
+        const grow = f ? Math.min(1, (now - f.fillAt) / 140) : 1;
+        ctx.beginPath();
+        ctx.arc(0, 0, g.badgeR * (0.72 + 0.28 * grow), 0, Math.PI * 2);
+        ctx.fillStyle = rgb(col);
+        ctx.fill();
+        ctx.save();
+        ctx.globalAlpha = grow;
+        numeral(kind === 'decision' ? '!' : String(S[kind]), 'rgba(6,8,10,.94)', true, g.badgeR * 1.35);
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+}
+
+function numeral(text, color, bold, size) {
+  ctx.fillStyle = color;
+  ctx.font = (bold ? '700 ' : '600 ') + (size || 12) + 'px "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", ui-rounded, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 0, 0.5);
+}
+
+/* 完全空闲：一颗安静呼吸的暗色小球（原项目这里放的是机器人） */
+function drawIdle(now) {
+  const p = (Math.sin(now / 1100) + 1) / 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, 7.5 + p * 1.7, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(59,130,246,' + (0.15 + p * 0.17).toFixed(3) + ')';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, 2.6, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(130,158,196,' + (0.20 + p * 0.18).toFixed(3) + ')';
+  ctx.fill();
+}
+
+/* 中途举手：脉动红环 + 向外扩散的 ping
+   —— 和「已结束的失败」（静态实心圆）严格区分：一个是正在进行，一个是已经停了 */
+function drawAlertLamp(now) {
+  const R = geom().badgeR;
+  const breathe = Math.sin(now / 260) * 0.5 + 0.5;
+  const t = (now % 1500) / 1500;
+  const pingR = R + 2 + t * 9;
+
+  ctx.beginPath();
+  ctx.arc(0, 0, pingR, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,69,58,' + (0.5 * (1 - t) * (1 - t)).toFixed(3) + ')';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(0, 0, R, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,69,58,' + (0.13 + 0.15 * breathe).toFixed(3) + ')';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,69,58,' + (0.60 + 0.40 * breathe).toFixed(3) + ')';
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
+
+  ctx.save();
+  ctx.globalAlpha = 0.72 + 0.28 * breathe;
+  numeral('!', 'rgb(255,96,86)', true, R * 1.25);
+  ctx.restore();
+}
+
+/* 笔刷推进 */
+function updateFlights(now, dt) {
+  for (let i = flights.length - 1; i >= 0; i--) {
+    const f = flights[i];
+    const age = now - f.t0;
+
+    // 目标灯位置（布局随状态变化，每帧重新取）
+    const gm = geom();
+    const list = lampList();
+    const dstKind = f.kind === 'answer' ? 'running' : f.kind;
+    const idx = list.indexOf(dstKind);
+    const dst = idx < 0 ? f.dst : slotPos(dstKind, idx, list.length);
+    f.dst = dst;
+
+    const srcKind = f.kind === 'answer' ? 'decision' : 'running';
+    const srcPos = f.srcPos || { x: 0, y: 0 };
+    const srcAngle = spin;
+    const srcR = srcKind === 'running' ? gm.ringR : gm.badgeR;
+    const srcPt = { x: srcPos.x + Math.cos(srcAngle) * srcR, y: srcPos.y + Math.sin(srcAngle) * srcR };
+
+    if (!f.path) f.path = buildPath(srcPt, srcAngle, dst, f.dir, f.arc || null);
+    const path = f.path;
+
+    const p = Math.min(1, age / FLIGHT_MS);
+    const head = p * path.total;
+    const tail = Math.max(0, head - STROKE_LEN);
+
+    // 沿笔画逐段上色 —— 头进尾随、途中连续变色
+    const from = f.fromColor;
+    const to   = f.color;
+    const step = 1.2;
+    ctx.lineCap = 'round';
+    for (let s = tail; s < head; s += step) {
+      const a = pointAt(path.pts, s);
+      const b = pointAt(path.pts, Math.min(head, s + step));
+      const t = Math.min(1, s / Math.max(1, path.travelLen));
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = rgb(mix(from, to, t));
+      ctx.lineWidth = 3.1;
+      ctx.stroke();
+    }
+
+    // 笔尖
+    if (head < path.total) {
+      const h = pointAt(path.pts, head);
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 2.0, 0, Math.PI * 2);
+      ctx.fillStyle = rgb(mix(from, to, Math.min(1, head / Math.max(1, path.travelLen))));
+      ctx.fill();
+    }
+
+    // 描完圆周 → 填充实心圆（实心圆遮住回程尾巴）
+    if (p >= 1 && !f.filled) {
+      f.filled = true;
+      f.fillAt = now;
+      if (f.kind === 'failure') log('失败：笔画向下收进红圈');
+      else if (f.kind === 'success') log('成功：笔画向上收进绿圈');
+      else if (f.kind === 'decision') log('待决策：笔画向上收进黄圈');
+      else log('回程完成：接回蓝环');
+    }
+    // 填充后实心圆在上层重绘一次，遮住穿过数字的尾巴（同心环模式没有实心圆，跳过）
+    if (f.filled && f.kind !== 'answer' && !gm.radial) {
+      const gg = Math.min(1, (now - f.fillAt) / 140);
+      ctx.beginPath();
+      ctx.arc(dst.x, dst.y, gm.badgeR, 0, Math.PI * 2);
+      ctx.fillStyle = rgb(f.color);
+      ctx.save();
+      ctx.globalAlpha = gg;
+      ctx.fill();
+      ctx.restore();
+      numeral(f.kind === 'decision' ? '!' : String(S[f.kind]), 'rgba(6,8,10,.94)', true, gm.badgeR * 1.35);
+    }
+
+    if (p >= 1 && f.filled && now - f.fillAt > 420) {
+      if (f.fadeLamp && !flights.some(x => x !== f && x.fadeLamp === f.fadeLamp)) hold[f.fadeLamp] = false;
+      flights.splice(i, 1);
+    }
+  }
+}
+
+/* ===================== 信息卡 ===================== */
+const card = document.getElementById('card');
+const detailEl = document.getElementById('detail');
+const rows = { running: document.getElementById('r-run'), decision: document.getElementById('r-ask'),
+               success: document.getElementById('r-ok'), failure: document.getElementById('r-bad') };
+let hovering = false;
+function updateCard() {
+  for (const k of Object.keys(rows)) {
+    const el = rows[k];
+    el.querySelector('.val').textContent = String(S[k]);
+    el.classList.toggle('zero', S[k] === 0);
+  }
+  detailEl.innerHTML = renderFailDetail();
+  const r = WRAP.getBoundingClientRect();
+  card.style.left = Math.max(8, r.left - card.offsetWidth - 12) + 'px';
+  card.style.top  = (r.top + r.height / 2 - card.offsetHeight / 2) + 'px';
+  card.classList.toggle('on', hovering);
+}
+
+/** 悬停卡底部 —— 中途举手优先显示，然后是最后一次失败原因 */
+function renderFailDetail() {
+  const lines = [];
+  if (alert) {
+    const a = Math.max(0, Math.round((Date.now() - alert.at) / 1000));
+    lines.push('<span class="code">AI 中途举手</span> · ' + a + ' 秒前<br>'
+             + '<span class="note">' + alert.reason + '</span>');
+  }
+  if (lastFail) {
+    const ago = Math.max(0, Math.round((Date.now() - lastFail.at) / 1000));
+    let what;
+    if (lastFail.kind === 'max-tokens') what = '<span class="code">max-tokens</span> · 撞到输出上限';
+    else if (lastFail.kind === 'blocked') what = '<span class="code">blocked</span> · 被规则否决';
+    else what = '<span class="code">error</span> · <span class="code">' + lastFail.code + '</span>'
+              + (lastFail.note ? ' <span class="note">（' + lastFail.note + '）</span>' : '');
+    lines.push('最后失败 ' + what + '<br>发生在 ' + ago + ' 秒前');
+  }
+  return lines.length ? lines.join('<br><br>') : '暂无异常';
+}
+
+/* ===================== 交互：拖动 ===================== */
+let drag = null;
+WRAP.addEventListener('pointerdown', e => {
+  drag = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y, moved: false };
+  WRAP.setPointerCapture(e.pointerId);
+  WRAP.classList.add('dragging');
+});
+WRAP.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+  if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;   // 4px 判定，和余额悬浮件一致
+  if (!drag.moved) return;
+  pos.x = clamp(drag.ox + dx, 0, innerWidth - WRAP.offsetWidth);
+  pos.y = clamp(drag.oy + dy, 0, innerHeight - WRAP.offsetHeight);
+  place();
+});
+addEventListener('pointerup', () => { drag = null; WRAP.classList.remove('dragging'); });
+WRAP.addEventListener('pointerenter', () => hovering = true);
+WRAP.addEventListener('pointerleave', () => hovering = false);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+const pos = { x: innerWidth - 260, y: 120 };
+function place() { WRAP.style.transform = 'translate(' + pos.x + 'px,' + pos.y + 'px)'; }
+place();
+addEventListener('resize', () => { pos.x = clamp(pos.x, 0, innerWidth - 200); pos.y = clamp(pos.y, 0, innerHeight - 200); place(); });
+
+/* ===================== 控件 ===================== */
+document.getElementById('shapes').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  shape = b.dataset.shape;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle('on', x === b));
+  log('形态：' + b.textContent);
+});
+document.getElementById('presents').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  present = b.dataset.p;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle('on', x === b));
+  log('状态呈现：' + b.textContent);
+});
+document.getElementById('b-add').onclick   = () => fire('running');
+document.getElementById('b-done').onclick  = () => fire('success');
+document.getElementById('b-fail').onclick  = () => fire('failure');
+document.getElementById('b-ask').onclick   = () => fire('decision');
+document.getElementById('b-answer').onclick= () => fire('answer');
+document.getElementById('b-clear').onclick = () => clearUnread('manual');
+document.getElementById('b-alert').onclick = () => fireAlert();
+document.getElementById('b-reset').onclick = () => {
+  S.running = 1; S.decision = 0; S.success = 0; S.failure = 0;
+  hold.running = false; hold.decision = false; hold.runningNum = 1;
+  clearing = null; flights.length = 0;
+  lastFail = null; failIdx = 0;
+  alert = null; alertIdx = 0;
+  seqIdx = 0;
+  restartDemo(400);
+  log('已重置');
+};
+const demoBtn = document.getElementById('b-demo');
+demoBtn.onclick = () => {
+  autoDemo = !autoDemo;
+  demoBtn.classList.toggle('on', autoDemo);
+  demoBtn.textContent = '自动演示：' + (autoDemo ? '开' : '关');
+  if (autoDemo) restartDemo(500);
+  else if (seqTimer) { clearTimeout(seqTimer); seqTimer = null; }
+};
+const modeBtn = document.getElementById('b-mode');
+modeBtn.onclick = () => {
+  randomMode = !randomMode;
+  modeBtn.classList.toggle('on', randomMode);
+  modeBtn.textContent = randomMode ? '随机' : '剧本';
+  seqIdx = 0;
+  log('演示模式：' + (randomMode ? '随机' : '剧本（一轮完整生命周期）'));
+};
+const autoClearBtn = document.getElementById('b-autoclear');
+autoClearBtn.onclick = () => {
+  autoClear = !autoClear;
+  autoClearBtn.classList.toggle('on', autoClear);
+  autoClearBtn.textContent = '剧本清除：' + (autoClear ? '开' : '关');
+  log(autoClear ? '剧本会模拟「你回 DSH 看了一眼」' : '已停止模拟 —— 未读现在只会累积，直到你点「我看了」');
+};
+document.querySelectorAll('.bgbtn').forEach(b => b.onclick = () => {
+  document.body.className = b.dataset.bg;
+  document.querySelectorAll('.bgbtn').forEach(x => x.classList.toggle('on', x === b));
+});
+
+/* =========================================================================
+   演示驱动
+   剧本模式：一轮完整生命周期 —— 空闲 → 并发鼓起 → 4 灯峰值 → 已读清除缩回 → 空闲
+   after = 本步做完后等多久再走下一步
+   ========================================================================= */
+const ACT = { run: 'running', done: 'success', fail: 'failure', ask: 'decision', answer: 'answer' };
+
+const SCRIPT = [
+  { act: 'run',    after: 1400 },   // 起一个任务
+  { act: 'run',    after: 2400 },   // 并发第二个
+  { act: 'done',   after: 1900 },
+  { act: 'run',    after: 1600 },
+  { act: 'fail',   after: 2100 },
+  { act: 'done',   after: 1900 },   // 运行归零，鼓到 3 灯
+  { act: 'ask',    after: 2600 },   // 需要你决策
+  { act: 'answer', after: 2200 },   // 黄 → 蓝回程
+  { act: 'clear',  after: 2000 },   // 模拟「你回 DSH 看了一眼」→ 未读清除，球缩回
+  { act: 'noop',   after: 6000 },   // 长时间只有运行，什么也不发生
+  { act: 'done',   after: 1800 },
+  { act: 'clear',  after: 1600 },   // 再看一眼 → 清干净，进入完全空闲
+  { act: 'noop',   after: 3200 },
+];
+
+const RANDOM_POOL = ['done', 'done', 'done', 'fail', 'ask', 'answer', 'run', 'run', 'clear', 'noop', 'noop'];
+
+let seqIdx = 0, seqTimer = null;
+
+function perform(act) {
+  if (act === 'noop') return;
+  if (act === 'clear') { if (autoClear) clearUnread('sim'); return; }   // 关掉即验证「不看不消失」
+  fire(ACT[act]);
+}
+
+function tick() {
+  seqTimer = null;
+  if (!autoDemo) return;
+  if (randomMode) {
+    perform(RANDOM_POOL[(Math.random() * RANDOM_POOL.length) | 0]);
+    seqTimer = setTimeout(tick, 700 + Math.random() * 2000);
+    return;
+  }
+  const step = SCRIPT[seqIdx % SCRIPT.length];
+  seqIdx++;
+  perform(step.act);
+  seqTimer = setTimeout(tick, step.after);
+}
+
+function restartDemo(delay) {
+  if (seqTimer) { clearTimeout(seqTimer); seqTimer = null; }
+  if (autoDemo) seqTimer = setTimeout(tick, delay);
+}
+
+requestAnimationFrame(frame);
+restartDemo(1400);
+</script>
+</body>
+</html>

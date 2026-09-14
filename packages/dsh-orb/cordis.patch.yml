@@ -1,0 +1,8 @@
+# Mounts the desktop status orb into the profile's plugin tree.
+#
+# 出事了想一键停掉：把下面这条的 name 改成注释里那样即可（boot 只在
+# 「enabled 且失败」时才拒绝，停用的条目不参与判定）。
+- insert:
+    - id: dsh-orb
+      name: 'dsh-orb'
+      # disabled: true

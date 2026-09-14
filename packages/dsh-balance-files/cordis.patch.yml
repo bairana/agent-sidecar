@@ -1,0 +1,4 @@
+# Mounts the balance + files floating widget into the profile's plugin tree.
+- insert:
+    - id: balance-files
+      name: 'dsh-balance-files'
