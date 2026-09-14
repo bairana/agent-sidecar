@@ -58,6 +58,11 @@ public sealed class OrbWindow : Window
         ResizeMode = ResizeMode.NoResize;
         Content = _visual;
 
+        // 悬停提示的默认延迟偏长（实测要两三秒才出来）。这是个 44px 的小球，
+        // 鼠标划过去就想看，等两三秒等于没有。调短，并且让它挂久一点方便读完。
+        ToolTipService.SetInitialShowDelay(this, 200);
+        ToolTipService.SetShowDuration(this, 30000);
+
         BuildMenu();
         RestoreSettings();
 
@@ -178,6 +183,48 @@ public sealed class OrbWindow : Window
         var reason = _feed?.AlertReason;
         ToolTip = string.IsNullOrWhiteSpace(reason) ? null : $"AI 举手：{reason}";
         RefreshSourceItem();
+        CheckFocusTakeover();
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int count);
+
+    private static bool DshWindowIsForeground()
+    {
+        try
+        {
+            var hwnd = GetForegroundWindow();
+            if (hwnd == IntPtr.Zero) return false;
+            var sb = new System.Text.StringBuilder(512);
+            if (GetWindowText(hwnd, sb, sb.Capacity) == 0) return false;
+            return sb.ToString().Contains("DeepSeek Harness", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// 只要 DSH 窗口在前台，就算「你看过了」，让插件熄灯。
+    ///
+    /// 一开始做的是「只在从别处切回来的那一下算」，那样有个洞：
+    /// DSH 本来就在前台时，你点它、滚动它、切换会话都不产生「切换」，
+    /// 于是什么都不会发生 —— 还得打字才灭。这很反直觉。
+    ///
+    /// 现在改成持续判定。代价要说清楚：**你正盯着 DSH 的时候红灯不会亮**，
+    /// 因为「你在看 DSH」本身就等于已读。这其实是自洽的 —— 红灯的语义就是
+    /// 「回来看一眼」，你已经在看了，它就没必要再喊。
+    /// （黄色的待决策不受影响：那是「你必须回答」的阻塞状态，跟你在不在看无关。）
+    ///
+    /// 只在真的有红灯时才发请求，所以不会每秒打一次接口。
+    /// </summary>
+    private void CheckFocusTakeover()
+    {
+        if (!string.IsNullOrEmpty(_feed?.AlertReason) && DshWindowIsForeground())
+        {
+            _feed.AckSeen();
+        }
     }
 
     private void ApplyDemo(int index)
