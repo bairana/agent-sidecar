@@ -454,9 +454,14 @@ export function apply(ctx) {
         const type = String(event?.type)
         if (type === 'turn/start') {
           seenAt.set(session.id, Date.now())
-        } else if (type === 'user/message' && event?.data?.source === 'user') {
+        } else if (type === 'user/message') {
+          // 注意：这里**不要**再去看 event.data.source。
+          // 类型定义里 MessageSourceMap.user = { kind: 'user' } —— 是个对象，
+          // 拿它跟字符串 'user' 比永远是 false，红灯就永远不灭（已经踩过一次）。
+          // 而 `user/message` 这个事件类型本身就够了：工具结果走的是 tool/result。
           seenAt.set(session.id, Date.now())
-          clearHand(session.id)   // 你在会话里说话了 = 你已经看到了，红灯可以灭了
+          clearHand(session.id)
+          trace(`收到用户消息 → 熄灭红灯: ${session.id}`)
         }
       } catch { /* 忽略 */ }
     }), 'dsh-orb: seen tracking')
