@@ -76,7 +76,10 @@ export const inject = ['credentials', 'webServer']
 
 这两个服务在 web profile 里一定存在，所以没问题。但如果哪天要把它挂到别的组合里，**先确认这两个服务在** —— 硬依赖不满足时插件会一直处于等待状态，而不是安静地跳过。
 
-（同仓库的 `dsh-orb` 反过来，用的是 `ctx.get()` + 判空，因为它要面对"宿主可能是各种组合"的情况。）
+> 同仓库的 `dsh-orb` 一开始想"更稳一点"，改用了 `ctx.get()` + 判空。
+> **结果插件彻底不工作**：在这个宿主里 `ctx.get('webServer')` 返回 `undefined` —— 服务明明在，
+> 别的插件用得好好的。后来也改回了硬 inject。
+> 所以这里的硬 inject 不是将就，是**唯一可行的写法**，见 `dsh-orb` 的 README。
 
 ## 许可
 

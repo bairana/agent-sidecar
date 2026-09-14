@@ -61,32 +61,43 @@ public sealed class OrbWindow : Window
         BuildMenu();
         RestoreSettings();
 
-        // 插件会用 --origin / --token 把球拉起来；手动双击启动时没有这两个参数，
-        // 那就退回到演示状态，方便单独调外观。
-        var (origin, token) = ParseArgs();
+        // 三种启动方式，刻意没有「静默兜底」：
+        //   插件拉起    --origin <url> --token <tok>   → 接真实数据
+        //   手动调外观  --demo                          → 演示状态（必须显式要求）
+        //   什么都没有                                  → 画「无数据」，一眼看得出它没在工作
+        // 之前是「没参数就自动进演示」，结果把真正的故障伪装成了正常状态，误导过一次。
+        var (origin, token, demo) = ParseArgs();
         if (origin is not null && token is not null)
         {
             _feed = new OrbFeed(_visual, origin, token);
             _feed.Start();
         }
-        else
+        else if (demo)
         {
             ApplyDemo(0);
+        }
+        else
+        {
+            _visual.Disconnected = true;
+            RefreshSourceItem();
         }
     }
 
     private OrbFeed? _feed;
 
-    private static (string? origin, string? token) ParseArgs()
+    private static (string? origin, string? token, bool demo) ParseArgs()
     {
         var args = Environment.GetCommandLineArgs();
         string? origin = null, token = null;
-        for (var i = 0; i < args.Length - 1; i++)
+        var demo = false;
+        for (var i = 0; i < args.Length; i++)
         {
+            if (args[i] == "--demo") { demo = true; continue; }
+            if (i >= args.Length - 1) continue;
             if (args[i] == "--origin") origin = args[i + 1];
             else if (args[i] == "--token") token = args[i + 1];
         }
-        return (origin, token);
+        return (origin, token, demo);
     }
 
     // ---------------------------------------------------------------- 菜单
@@ -147,9 +158,14 @@ public sealed class OrbWindow : Window
         ContextMenu = menu;
     }
 
+    private bool _demoMode;
+
     private void ApplyDemo(int index)
     {
         if (_feed is not null) return;   // 接了真数据就不让演示覆盖
+
+        _demoMode = true;
+        _visual.Disconnected = false;
 
         _demoIndex = ((index % Demo.Length) + Demo.Length) % Demo.Length;
         var d = Demo[_demoIndex];
@@ -162,17 +178,22 @@ public sealed class OrbWindow : Window
         RefreshSourceItem();
     }
 
-    /// <summary>菜单里那一行：没接插件时是「演示状态：xxx ▶」，接上了就变成数据源状态。</summary>
+    /// <summary>菜单里那一行，三种情况分得清清楚楚，不互相伪装。</summary>
     private void RefreshSourceItem()
     {
-        if (_feed is null)
+        if (_feed is not null)
+        {
+            _demoItem.Header = $"数据源：{_feed.Status}";
+            _demoItem.IsEnabled = false;
+        }
+        else if (_demoMode)
         {
             _demoItem.Header = $"演示状态：{Demo[_demoIndex].name}  ▶";
             _demoItem.IsEnabled = true;
         }
         else
         {
-            _demoItem.Header = $"数据源：{_feed.Status}";
+            _demoItem.Header = "数据源：无（启动时没传 --origin/--token）";
             _demoItem.IsEnabled = false;
         }
     }

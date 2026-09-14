@@ -47,6 +47,24 @@ public sealed class OrbVisual : FrameworkElement
 
     public OrbState State => _state;
 
+    private bool _disconnected;
+
+    /// <summary>
+    /// 没有数据源（既没接插件、也没显式要求演示）。
+    /// 这时画一个明确「无数据」的样子，而不是显示一个看起来正常的空状态 ——
+    /// 静默兜底会把真正的故障伪装成「一切正常」。
+    /// </summary>
+    public bool Disconnected
+    {
+        get => _disconnected;
+        set
+        {
+            if (_disconnected == value) return;
+            _disconnected = value;
+            InvalidateVisual();
+        }
+    }
+
     /// <summary>球直径。右键菜单可以改，几何全部跟着重算。</summary>
     public double Size
     {
@@ -133,7 +151,7 @@ public sealed class OrbVisual : FrameworkElement
         var c = new Point(cx, cy);
 
         var act = _state.ActionKind;
-        var statusColor = act switch
+        var statusColor = _disconnected ? null : act switch
         {
             "alert" => ColBad,
             "decision" => ColAsk,
@@ -163,6 +181,15 @@ public sealed class OrbVisual : FrameworkElement
             new Pen(new SolidColorBrush(Alpha(border, borderAlpha)), borderW),
             c, BallR - borderW / 2, BallR - borderW / 2);
 
+        // ---- 无数据源：什么圈都不画，只留一个安静的球和一个破折号 ----
+        // 这样一眼就能看出「它没在工作」，而不是把故障伪装成一个正常的空闲态。
+        if (_disconnected)
+        {
+            DrawCenterText(dc, c, "–");
+            dc.Pop();
+            return;
+        }
+
         // ---- 外圈：运行中 ----
         if (_state.Running > 0)
             DrawArc(dc, c, RingR, _spin, Tau * 0.40, ColRun, StrokeW, 1.0);
@@ -183,15 +210,15 @@ public sealed class OrbVisual : FrameworkElement
         }
 
         // ---- 中间的运行数 ----
-        DrawCenterNumber(dc, c, _state.Running);
+        DrawCenterText(dc, c, _state.Running.ToString(CultureInfo.InvariantCulture));
 
         dc.Pop();
     }
 
-    private void DrawCenterNumber(DrawingContext dc, Point c, int n)
+    private void DrawCenterText(DrawingContext dc, Point c, string text)
     {
         var ft = new FormattedText(
-            n.ToString(CultureInfo.InvariantCulture),
+            text,
             CultureInfo.InvariantCulture,
             FlowDirection.LeftToRight,
             NumFont,
