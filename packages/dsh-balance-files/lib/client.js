@@ -408,10 +408,22 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         loadAll()
         computeStorage()
-        const timer = window.setInterval(loadAll, 30000)
-        const storageTimer = window.setInterval(computeStorage, 10 * 60 * 1000)
+        // 频率改过：原来余额是每 30 秒一次，太密了。
+        // 宿主那边是直接透传的（没有缓存），所以**每次轮询都是一次真实的 DeepSeek API 调用** ——
+        // 开一天下来是两千多次，而余额其实只在花钱时才变。
+        // 现在：可见时每 5 分钟一次；标签页切走就完全不轮询；切回来立刻拉一次（下面那个监听）。
+        const REFRESH_MS = 5 * 60 * 1000
+        const visible = () => document.visibilityState === 'visible'
+        const timer = window.setInterval(() => {
+          if (!visible()) return
+          loadAll()
+        }, REFRESH_MS)
+        const storageTimer = window.setInterval(() => {
+          if (!visible()) return
+          computeStorage()
+        }, 10 * 60 * 1000)
         const onVisibility = () => {
-          if (document.visibilityState === 'visible') {
+          if (visible()) {
             loadAll()
             computeStorage()
           }

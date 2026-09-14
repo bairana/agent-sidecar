@@ -186,6 +186,21 @@ function clearHand(sessionId) {
   return alerts.delete(String(sessionId))
 }
 
+/**
+ * 「你看过了」—— 一个概念一条规则。
+ *
+ * 已读状态和红灯共用同一组触发点：你在会话里说话了，或者那个会话开始了新一轮。
+ * 分成两套规则的话，迟早会出现「已读了但灯还红着」这种自相矛盾的状态。
+ *
+ * 已知代价：自动开始的轮次（比如 goal round）走的也是 turn/start，
+ * 那时红灯同样会灭 —— 因为从「你看过没有」这个角度，它确实分不出来。
+ */
+function markSeen(sessionId, why) {
+  const id = String(sessionId)
+  seenAt.set(id, Date.now())
+  if (clearHand(id)) trace(`你看过了（${why}）→ 熄灭红灯: ${id}`)
+}
+
 /** 还没过期的举手。顺手清掉过期的。 */
 function activeAlerts() {
   const now = Date.now()
@@ -408,6 +423,36 @@ export function apply(ctx) {
       warn(ctx, '路由注册失败：' + String(error))
     }
 
+    // ---- 「我点了球」确认路由 ----
+    // 看到红灯后最自然的反应是「点球把 DSH 拉出来看」，而点击既不是 turn/start
+    // 也不是用户消息 —— 少了这条，灯会一直红到你打字为止。
+    try {
+      ctx.effect(() => webServer.register({
+        kind: 'exact',
+        path: '/dsh-orb/ack',
+        handler: (req, res) => {
+          try {
+            if (req.method !== 'POST' || !isLoopback(req) || !authorized(req)) {
+              res.writeHead(403, { 'content-type': 'application/json' })
+              res.end('{"ok":false}')
+              return
+            }
+            const n = alerts.size
+            alerts.clear()
+            trace(`球被点了 → 清掉 ${n} 个红灯`)
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end('{"ok":true}')
+          } catch (error) {
+            try { res.writeHead(500, { 'content-type': 'application/json' }); res.end('{"ok":false}') } catch { /* 已发出 */ }
+            traceError('ack 处理失败', error)
+          }
+        },
+      }), 'dsh-orb: ack route')
+      trace('确认路由已注册: /dsh-orb/ack')
+    } catch (error) {
+      traceError('确认路由注册失败', error)
+    }
+
     // ---- 模型工具：raise_hand ----
     try {
       if (ctx.tools && typeof ctx.tools.register === 'function') {
@@ -452,16 +497,11 @@ export function apply(ctx) {
       ctx.effect(() => ctx.on('session/event', (session, event) => {
       try {
         const type = String(event?.type)
-        if (type === 'turn/start') {
-          seenAt.set(session.id, Date.now())
-        } else if (type === 'user/message') {
-          // 注意：这里**不要**再去看 event.data.source。
-          // 类型定义里 MessageSourceMap.user = { kind: 'user' } —— 是个对象，
-          // 拿它跟字符串 'user' 比永远是 false，红灯就永远不灭（已经踩过一次）。
-          // 而 `user/message` 这个事件类型本身就够了：工具结果走的是 tool/result。
-          seenAt.set(session.id, Date.now())
-          clearHand(session.id)
-          trace(`收到用户消息 → 熄灭红灯: ${session.id}`)
+        if (type === 'turn/start' || type === 'user/message') {
+          // 不看 event.data.source —— 类型定义里它是 { kind: 'user' } 对象，
+          // 拿它跟字符串比永远是 false（踩过）。事件类型本身就够了：
+          // 工具结果走的是 tool/result，不会落到这儿。
+          markSeen(session.id, type)
         }
       } catch { /* 忽略 */ }
     }), 'dsh-orb: seen tracking')

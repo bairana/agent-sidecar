@@ -21,6 +21,7 @@ public sealed class OrbFeed
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly string _url;
+    private readonly string _ackUrl;
 
     private int _fails;
 
@@ -30,8 +31,27 @@ public sealed class OrbFeed
     public OrbFeed(OrbVisual visual, string origin, string token)
     {
         _visual = visual;
-        _url = $"{origin.TrimEnd('/')}/dsh-orb/status?token={Uri.EscapeDataString(token)}";
+        var baseUrl = origin.TrimEnd('/');
+        var q = $"?token={Uri.EscapeDataString(token)}";
+        _url = $"{baseUrl}/dsh-orb/status{q}";
+        _ackUrl = $"{baseUrl}/dsh-orb/ack{q}";
         _timer.Tick += OnTick;
+    }
+
+    /// <summary>
+    /// 告诉插件「我点了球，已经看到了」—— 让它把红灯熄掉。
+    /// 看到红灯最自然的反应是点球把宿主拉出来看，而点击既不是新一轮也不是用户消息，
+    /// 插件那边感知不到；少了这一步，灯会一直红到你打字为止。
+    /// 失败不影响任何事，所以不 await、不报错。
+    /// </summary>
+    public async void AckSeen()
+    {
+        try
+        {
+            using var body = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+            await _http.PostAsync(_ackUrl, body).ConfigureAwait(true);
+        }
+        catch { /* 确认失败不该影响任何事 */ }
     }
 
     public void Start()
@@ -89,6 +109,13 @@ public sealed class OrbFeed
         st.Failure = GetInt(root, "failure");
         st.Decision = GetInt(root, "decision");
         st.Alert = root.TryGetProperty("alert", out var a) && a.ValueKind == JsonValueKind.True;
+
+        // 红灯亮的时候得能知道为什么 —— 把插件的理由挂成悬停提示。
+        // 鼠标停在球上就能看到，比让用户去翻日志强。
+        var reason = root.TryGetProperty("alertReason", out var ar) && ar.ValueKind == JsonValueKind.String
+            ? ar.GetString()
+            : null;
+        _visual.ToolTip = string.IsNullOrWhiteSpace(reason) ? null : $"AI 举手：{reason}";
 
         _visual.StateChanged();
     }

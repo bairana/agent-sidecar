@@ -251,7 +251,11 @@ public sealed class OrbWindow : Window
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
-        if (_pressed && !_dragging) OpenDsh();
+        if (_pressed && !_dragging)
+        {
+            _feed?.AckSeen();   // 点了球 = 你已经看到了，先让插件把红灯熄掉
+            OpenDsh();
+        }
         _pressed = false;
         _dragging = false;
         base.OnMouseLeftButtonUp(e);
