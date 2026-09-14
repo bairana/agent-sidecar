@@ -70,11 +70,12 @@ public sealed class OrbWindow : Window
         if (origin is not null && token is not null)
         {
             _feed = new OrbFeed(_visual, origin, token);
+            _feed.Changed += OnFeedChanged;
             _feed.Start();
         }
-        else if (demo)
+        else if (demo >= 0)
         {
-            ApplyDemo(0);
+            ApplyDemo(demo);
         }
         else
         {
@@ -85,14 +86,20 @@ public sealed class OrbWindow : Window
 
     private OrbFeed? _feed;
 
-    private static (string? origin, string? token, bool demo) ParseArgs()
+    private static (string? origin, string? token, int demo) ParseArgs()
     {
         var args = Environment.GetCommandLineArgs();
         string? origin = null, token = null;
-        var demo = false;
+        var demo = -1;   // -1 = 没要求演示
         for (var i = 0; i < args.Length; i++)
         {
-            if (args[i] == "--demo") { demo = true; continue; }
+            if (args[i] == "--demo") { demo = 0; continue; }
+            // --demo=6 直接跳到第 6 个演示状态（红灯那个），本地调外观时省得点七次菜单
+            if (args[i].StartsWith("--demo=", StringComparison.Ordinal))
+            {
+                demo = int.TryParse(args[i].AsSpan("--demo=".Length), out var n) ? n : 0;
+                continue;
+            }
             if (i >= args.Length - 1) continue;
             if (args[i] == "--origin") origin = args[i + 1];
             else if (args[i] == "--token") token = args[i + 1];
@@ -160,6 +167,19 @@ public sealed class OrbWindow : Window
 
     private bool _demoMode;
 
+    /// <summary>
+    /// 每次拉到新数据：把手举理由挂到窗口的悬停提示上，并刷新菜单第一行。
+    ///
+    /// 注意 ToolTip 是设在**窗口**上的，不是 OrbVisual —— 鼠标事件实际打在窗口上
+    /// （拖动和点击都挂在窗口，那些是好用的），设在可视元素上根本收不到 hover。
+    /// </summary>
+    private void OnFeedChanged()
+    {
+        var reason = _feed?.AlertReason;
+        ToolTip = string.IsNullOrWhiteSpace(reason) ? null : $"AI 举手：{reason}";
+        RefreshSourceItem();
+    }
+
     private void ApplyDemo(int index)
     {
         if (_feed is not null) return;   // 接了真数据就不让演示覆盖
@@ -181,6 +201,17 @@ public sealed class OrbWindow : Window
     /// <summary>菜单里那一行，三种情况分得清清楚楚，不互相伪装。</summary>
     private void RefreshSourceItem()
     {
+        // 红灯亮着的时候，第一行直接说明为什么。
+        // 悬停提示不一定被看到，但菜单是验证过一定能渲染的地方。
+        var reason = _feed?.AlertReason;
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            var shortReason = reason.Length > 60 ? reason[..60] + "…" : reason;
+            _demoItem.Header = $"⚠ AI 举手：{shortReason}";
+            _demoItem.IsEnabled = false;
+            return;
+        }
+
         if (_feed is not null)
         {
             _demoItem.Header = $"数据源：{_feed.Status}";

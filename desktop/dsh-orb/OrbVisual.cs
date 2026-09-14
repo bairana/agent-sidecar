@@ -123,15 +123,25 @@ public sealed class OrbVisual : FrameworkElement
         }
     }
 
+    // 限流到 30 帧。CompositionTarget.Rendering 是跟着显示器刷新走的（60Hz 就是 60 次/秒），
+    // 而这个球只是个 44px 的挂件，30 帧完全够看，CPU 直接砍一半。
+    private static readonly TimeSpan MinFrame = TimeSpan.FromSeconds(1.0 / 30.0);
+    private TimeSpan _lastPaint;
+
     private void OnFrame(object? sender, EventArgs e)
     {
         if (e is RenderingEventArgs r)
         {
-            if (_last == default) _last = r.RenderingTime;
+            _now = r.RenderingTime.TotalMilliseconds;
+            if (_last == default) { _last = r.RenderingTime; _lastPaint = r.RenderingTime; }
+
+            // 还没到下一帧的时间就跳过 —— 注意什么状态都不推进，等真画的时候一起算
+            if (r.RenderingTime - _lastPaint < MinFrame) return;
+            _lastPaint = r.RenderingTime;
+
             var dt = (r.RenderingTime - _last).TotalSeconds;
             _last = r.RenderingTime;
-            if (dt > 0.05) dt = 0.05;
-            _now = r.RenderingTime.TotalMilliseconds;
+            if (dt > 0.1) dt = 0.1;
             if (_state.Running > 0) _spin += dt * 2.1;
         }
         InvalidateVisual();
@@ -162,24 +172,24 @@ public sealed class OrbVisual : FrameworkElement
         // ---- 外面那圈光晕：要你动手时才出现，让球在余光里也抓得住 ----
         if (statusColor is { } halo)
         {
-            dc.DrawEllipse(null,
-                new Pen(new SolidColorBrush(Alpha(halo, 0.22 + 0.50 * breathe)), HaloW),
-                c, HaloR, HaloR);
+            dc.PushOpacity(Math.Clamp(0.22 + 0.50 * breathe, 0, 1));
+            dc.DrawEllipse(null, CachedPen(halo, HaloW), c, HaloR, HaloR);
+            dc.Pop();
         }
 
         // ---- 球体：底色只轻轻染一点 ----
         // 曾经染到 0.32，黄色确实最抢眼，但内圈的绿弧红弧会被压闷。
         // 现在把亮度都让给边框和光晕环，底色只留 0.15 做「整体氛围」。
         var fill = statusColor is { } sc ? Mix(ColShell, sc, 0.15) : ColShell;
-        dc.DrawEllipse(new SolidColorBrush(fill), null, c, BallR, BallR);
+        dc.DrawEllipse(CachedBrush(fill), null, c, BallR, BallR);
 
         // ---- 边框：亮度的主要承担者 ----
         var (border, borderAlpha, borderW) = statusColor is { } bc
             ? (bc, 0.85 + 0.15 * breathe, 2.4 * Scale)
             : (Colors.White, 0.18, 1.2 * Scale);
-        dc.DrawEllipse(null,
-            new Pen(new SolidColorBrush(Alpha(border, borderAlpha)), borderW),
-            c, BallR - borderW / 2, BallR - borderW / 2);
+        dc.PushOpacity(Math.Clamp(borderAlpha, 0, 1));
+        dc.DrawEllipse(null, CachedPen(border, borderW), c, BallR - borderW / 2, BallR - borderW / 2);
+        dc.Pop();
 
         // ---- 无数据源：什么圈都不画，只留一个安静的球和一个破折号 ----
         // 这样一眼就能看出「它没在工作」，而不是把故障伪装成一个正常的空闲态。
@@ -239,7 +249,38 @@ public sealed class OrbVisual : FrameworkElement
     private static Color Alpha(Color c, double a) =>
         Color.FromArgb((byte)Math.Clamp(a * 255, 0, 255), c.R, c.G, c.B);
 
-    private static void DrawArc(DrawingContext dc, Point c, double r,
+    // 画笔按 (颜色, 粗细) 缓存并冻结。
+    // 原来每帧、每条弧都 new 一个 Pen + SolidColorBrush —— 60fps × 三四条弧
+    // 就是每秒两百多次分配，全喂给 GC 了。透明度改用 PushOpacity，
+    // 这样同一个颜色的画笔可以一直复用，不必为了 alpha 重建。
+    private readonly Dictionary<(Color, double), Pen> _pens = new();
+    private readonly Dictionary<Color, SolidColorBrush> _brushes = new();
+
+    private SolidColorBrush CachedBrush(Color col)
+    {
+        if (_brushes.TryGetValue(col, out var cached)) return cached;
+        var brush = new SolidColorBrush(col);
+        brush.Freeze();
+        _brushes[col] = brush;
+        return brush;
+    }
+
+    private Pen CachedPen(Color col, double width)
+    {
+        var key = (col, Math.Round(width, 2));
+        if (_pens.TryGetValue(key, out var cached)) return cached;
+        var pen = new Pen(new SolidColorBrush(col), key.Item2)
+        {
+            StartLineCap = PenLineCap.Round,
+            EndLineCap = PenLineCap.Round,
+            LineJoin = PenLineJoin.Round,
+        };
+        pen.Freeze();
+        _pens[key] = pen;
+        return pen;
+    }
+
+    private void DrawArc(DrawingContext dc, Point c, double r,
         double a0, double span, Color col, double width, double alpha)
     {
         const int n = 56;
@@ -256,13 +297,8 @@ public sealed class OrbVisual : FrameworkElement
         }
         geo.Freeze();
 
-        var pen = new Pen(new SolidColorBrush(Alpha(col, alpha)), width)
-        {
-            StartLineCap = PenLineCap.Round,
-            EndLineCap = PenLineCap.Round,
-            LineJoin = PenLineJoin.Round,
-        };
-        pen.Freeze();
-        dc.DrawGeometry(null, pen, geo);
+        dc.PushOpacity(Math.Clamp(alpha, 0, 1));
+        dc.DrawGeometry(null, CachedPen(col, width), geo);
+        dc.Pop();
     }
 }

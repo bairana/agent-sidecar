@@ -110,15 +110,19 @@ public sealed class OrbFeed
         st.Decision = GetInt(root, "decision");
         st.Alert = root.TryGetProperty("alert", out var a) && a.ValueKind == JsonValueKind.True;
 
-        // 红灯亮的时候得能知道为什么 —— 把插件的理由挂成悬停提示。
-        // 鼠标停在球上就能看到，比让用户去翻日志强。
-        var reason = root.TryGetProperty("alertReason", out var ar) && ar.ValueKind == JsonValueKind.String
+        AlertReason = root.TryGetProperty("alertReason", out var ar) && ar.ValueKind == JsonValueKind.String
             ? ar.GetString()
             : null;
-        _visual.ToolTip = string.IsNullOrWhiteSpace(reason) ? null : $"AI 举手：{reason}";
 
         _visual.StateChanged();
+        Changed?.Invoke();
     }
+
+    /// <summary>插件给的举手理由，没有就是 null。窗口拿它做悬停提示和菜单项。</summary>
+    public string? AlertReason { get; private set; }
+
+    /// <summary>每次拉到新数据后触发，让窗口去更新提示 / 菜单。</summary>
+    public event Action? Changed;
 
     private static int GetInt(JsonElement root, string name) =>
         root.TryGetProperty(name, out var v) && v.TryGetInt32(out var n) ? n : 0;

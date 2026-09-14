@@ -389,6 +389,21 @@ export function apply(ctx) {
     const origin = `http://${webServer.host}:${String(webServer.port)}`
     trace(`origin: ${origin}`)
 
+    // ---- 把 origin + token 落到盘上 ----
+    // 没有这个文件的话，令牌只活在插件内存里：想单独重启球来调外观，
+    // 就找不到能通过认证的令牌，只能重启整个宿主（踩过一次）。
+    // 有了它，球随时可以自己重启，改球再也不用动宿主。
+    const runtimeFile = join(TRACE_DIR, 'runtime.json')
+    try {
+      mkdirSync(TRACE_DIR, { recursive: true })
+      writeFileSync(runtimeFile,
+        `${JSON.stringify({ origin, token: TOKEN, pid: process.pid, writtenAt: Date.now() }, null, 2)}\n`,
+        { encoding: 'utf8', mode: 0o600 })
+      trace(`runtime.json 已写: ${runtimeFile}`)
+    } catch (error) {
+      traceError('写 runtime.json 失败', error)
+    }
+
     // ---- 路由 ----
     try {
       ctx.effect(() => webServer.register({
